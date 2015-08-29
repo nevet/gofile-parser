@@ -28,8 +28,8 @@ func (stack *Stack) Push(val interface{}) {
 }
 
 func (stack *Stack) Pop() {
-	if size > 0 {
+	if stack.size > 0 {
 		stack.top = stack.top.next
-		size--
+		stack.size--
 	}
 }
