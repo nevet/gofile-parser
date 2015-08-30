@@ -2,7 +2,6 @@ package component
 
 import (
 	"bufio"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -11,14 +10,75 @@ import (
 	"github.com/nevet/parser/utils"
 )
 
-type ParseTestData struct {
+type ParseTestCase struct {
 	name           string
 	data           string
 	expectedResult Definition
 }
 
+type ParseItemTestCase struct {
+	name           string
+	data           []string
+	expectedResult Definition
+	remaining      []string
+}
+
+func TestDefinitionItemParse(t *testing.T) {
+	var testData = []ParseItemTestCase{
+		{
+			name:           "Definition Item Parse Test 1 -- Normal Defition",
+			data:           []string{"name", "type", ")"},
+			expectedResult: Definition{"type": []string{"name"}},
+			remaining:      []string{")"},
+		},
+		{
+			name:           "Definition Item Parse Test 2 -- Normal Defition End With Comma",
+			data:           []string{"name", "type", ","},
+			expectedResult: Definition{"type": []string{"name"}},
+			remaining:      []string{","},
+		},
+		{
+			name:           "Definition Item Parse Test 3 -- Multiple Name Single Type",
+			data:           []string{"n1", ",", "n2", "type", ")"},
+			expectedResult: Definition{"type": []string{"n1", "n2"}},
+			remaining:      []string{")"},
+		},
+		{
+			name:           "Definition Item Parse Test 4 -- Multiple Name Single Type End With Comma",
+			data:           []string{"n1", ",", "n2", "type", ","},
+			expectedResult: Definition{"type": []string{"n1", "n2"}},
+			remaining:      []string{","},
+		},
+		{
+			name:           "Definition Item Parse Test 5 -- Single Type",
+			data:           []string{"type", ")"},
+			expectedResult: Definition{"type": nil},
+			remaining:      []string{")"},
+		},
+		{
+			name:           "Definition Item Parse Test 6 -- Multiple Type",
+			data:           []string{"t1", ",", "t2", ")"},
+			expectedResult: Definition{"t1": nil, "t2": nil},
+			remaining:      []string{")"},
+		},
+		{
+			name:           "Definition Item Parse Test 7 -- Normal Defition Start With Bracket",
+			data:           []string{"(", "name", "type", ")"},
+			expectedResult: Definition{"type": []string{"name"}},
+			remaining:      []string{")"},
+		},
+	}
+
+	for _, test := range testData {
+		definition := parseDefinitionItem(&test.data)
+
+		assert.Equal(t, test.expectedResult, *definition, test.name)
+		assert.Equal(t, test.data, test.remaining, test.name)
+	}
+}
+
 func TestDefinitionParse(t *testing.T) {
-	var testData = []ParseTestData{
+	var testData = []ParseTestCase{
 		{
 			name:           "Definition Parse Test 1 -- One Pair",
 			data:           "(name type)",
@@ -32,7 +92,7 @@ func TestDefinitionParse(t *testing.T) {
 		{
 			name:           "Definition Parse Test 3 -- Two Pairs, Multiple Per Pair",
 			data:           "(name, work string, age int)",
-			expectedResult: Definition{"string": []string{"name", "work"}, "bool": []string{"another"}},
+			expectedResult: Definition{"string": []string{"name", "work"}, "int": []string{"age"}},
 		},
 		{
 			name: "Definition Parse Test 4 -- One Pair, Multiple Line",
@@ -69,13 +129,10 @@ func TestDefinitionParse(t *testing.T) {
 
 		definition.Parse(buf, &tokens)
 
-		fmt.Println(definition)
-
 		assert.Equal(t, test.expectedResult, definition, test.name)
 
 		// tokens should possess only 1 item now
-		assert.Equal(t, 1, len(tokens), test.name)
-		assert.Equal(t, ")", tokens[0], test.name)
+		assert.Equal(t, 0, len(tokens), test.name)
 
 		// next buf.Scan should return false
 		assert.Equal(t, false, buf.Scan(), test.name)
