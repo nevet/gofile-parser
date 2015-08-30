@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"errors"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -18,6 +19,10 @@ const (
 
 	StateIdle      = 0 // starting state, waiting for package name
 	StateInPackage = 1 // after package name, before EOF, outside any funcs
+)
+
+var (
+	noFormatCheck, noErrorCheck *bool
 
 	boundMapper = map[string]string{
 		"(": ")",
@@ -25,19 +30,41 @@ const (
 	}
 )
 
+type Definition map[string][]string
+
+func (def Definition) Append(another *Definition) {
+	for k, v := range *another {
+		def[k] = append(def[k], v...)
+	}
+}
+
+func (def *Definition) Dump() {
+	// print definition
+}
+
 type GoFile struct {
-	Package string
-	Import  []string
-	Const   []string
-	Var     []string
-	Type    []string
-	Func    []Function
+	Package   string
+	Import    []string
+	Const     []string
+	Var       *Definition
+	Type      *Definition
+	Functions []*Function
 }
 
 type Function struct {
+	MemberOf   string
 	Name       string
-	Parameters map[string]string
-	Return     map[string]string
+	Parameters *Definition
+	Return     *Definition
+	Body       *FuncBody
+}
+
+func (function *Function) Dump() {
+	// print function
+}
+
+type FuncBody struct {
+	Raw []string
 }
 
 func (goFile *GoFile) Dump() {
@@ -64,29 +91,25 @@ func (goFile *GoFile) Dump() {
 	}
 
 	fmt.Println("\nVar:")
-	if len(goFile.Var) == 0 {
+	if len(*goFile.Var) == 0 {
 		fmt.Println("Not Found")
 	} else {
-		for _, v := range goFile.Var {
-			fmt.Println(v)
-		}
+		goFile.Var.Dump()
 	}
 
 	fmt.Println("\nType:")
-	if len(goFile.Type) == 0 {
+	if len(*goFile.Type) == 0 {
 		fmt.Println("Not Found")
 	} else {
-		for _, v := range goFile.Type {
-			fmt.Println(v)
-		}
+		goFile.Type.Dump()
 	}
 
 	fmt.Println("\nFunc:")
-	if len(goFile.Func) == 0 {
+	if len(goFile.Functions) == 0 {
 		fmt.Println("Not Found")
 	} else {
-		for _, v := range goFile.Func {
-			fmt.Println(v)
+		for _, v := range goFile.Functions {
+			v.Dump()
 		}
 	}
 }
@@ -124,58 +147,45 @@ func getLineToken(line string) []string {
 	return tokenize(&tokenScanner)
 }
 
-func parseDefinitionPair(lineTokens []string) (mapper map[string][]string, leftOver []string) {
-	paraNames := []string{lineTokens[0]}
+func parseDefinitionItem(lineTokens *[]string) *Definition {
+	definition := make(Definition)
+
+	paraNames := []string{(*lineTokens)[0]}
 	curRune := 1
 
-	for lineTokens[curRune] == "," {
-		paraNames = append(paraNames, lineTokens[curRune+1])
+	for (*lineTokens)[curRune] == "," {
+		paraNames = append(paraNames, (*lineTokens)[curRune+1])
 		curRune += 2
 	}
 
-	mapper[lineTokens[curRune]] = paraNames
+	definition[(*lineTokens)[curRune]] = paraNames
+	*lineTokens = (*lineTokens)[curRune+1:]
 
-	return mapper, lineTokens[curRune+1:]
+	return &definition
 }
 
-func parseDefinition(buf *bufio.Scanner, lineTokens []string, bound string) (mapper map[string]string, leftOver []string) {
-	// parse function parameters
-	for lineTokens[0] != boundMapper[bound] {
-		if len(lineTokens) == 1 {
+func parseDefinition(buf *bufio.Scanner, lineTokens *[]string, bound string) *Definition {
+	definition := make(Definition)
+
+	for (*lineTokens)[0] != boundMapper[bound] {
+		if len(*lineTokens) == 1 {
 			buf.Scan()
-			lineTokens = getLineToken(buf.Text())
+			*lineTokens = getLineToken(buf.Text())
 		} else {
-
-		}
-
-		for curRune < len(lineTokens) && lineTokens[curRune] != boundMapper[bound] {
-			if lineTokens[curRune] == bound {
-				curRune++
-			} else if isMathcingName {
-				curName = lineTokens[curRune]
-				isMathcingName = false
-				curRune++
-			} else {
-				curType += lineTokens[curRune]
-				curRune++
-
-				if lineTokens[curRune] == "," || lineTokens[curRune] == boundMapper[bound] {
-					mapper[curName] = curType
-					isMathcingName = true
-
-					curName = ""
-					curType = ""
-				}
-			}
-		}
-
-		if curRune == len(lineTokens) {
-
-			curRune = 0
+			definition.Append(parseDefinitionItem(lineTokens))
 		}
 	}
 
-	return mapper, lineTokens[curRune+1:]
+	*lineTokens = (*lineTokens)[1:]
+
+	return &definition
+}
+
+func parseFlag() {
+	noFormatCheck = flag.Bool("nofmt", false, "Skip code format checking")
+	noErrorCheck = flag.Bool("noerr", false, "Skip code error checking")
+
+	flag.Parse()
 }
 
 func parseImport(buf *bufio.Scanner, lineTokens []string) (packageNames []string) {
@@ -194,57 +204,114 @@ func parseImport(buf *bufio.Scanner, lineTokens []string) (packageNames []string
 	return
 }
 
-func parseFunc(buf *bufio.Scanner, lineTokens []string) (memberOf string, funcName *Function) {
+func parseBody(buf *bufio.Scanner, lineTokens []string) (funcBody []string) {
+	// since the function is well formatted, there are only 2 possible cases:
+	// 1. { function_body }
+	// 2.
+	// { <--- must be on a new line with itself
+	//     function_body
+	// } <--- must be on a new line with itself
+
+	// case 1
+	funcBody = append(funcBody, lineTokens...)
+
+	// case 2
+	if len(lineTokens) == 1 {
+		for buf.Scan(); len(lineTokens) != 1 || lineTokens[0] != "}"; buf.Scan() {
+			lineTokens = getLineToken(buf.Text())
+			funcBody = append(funcBody, lineTokens...)
+		}
+	}
+
+	return
+}
+
+func parseFunc(buf *bufio.Scanner, lineTokens []string) (function *Function) {
+	function = &Function{}
+
 	// parse function membership
 	if lineTokens[0] == "(" {
-		memberOf = lineTokens[1]
+		function.MemberOf = lineTokens[1]
 
 		if lineTokens[1] == "*" {
-			memberOf = lineTokens[2]
-			_, funcName = parseFunc(buf, lineTokens[4:])
+			function.MemberOf = lineTokens[2]
+			lineTokens = lineTokens[4:]
 		}
 
-		_, funcName = parseFunc(buf, lineTokens[3:])
-
-		return
+		lineTokens = lineTokens[3:]
 	}
 
 	// parse function name
-	function = &Function{Name: lineTokens[0]}
+	function.Name = lineTokens[0]
 
 	// parse parameter
-	function.Parameters = parseDefinition(buf, lineTokens[1:], "(")
+	lineTokens = lineTokens[1:]
+	function.Parameters = parseDefinition(buf, &lineTokens, "(")
 
+	// parse return
 	if lineTokens[0] == "(" {
-		returnMapper
+		lineTokens = lineTokens[1:]
+		function.Return = parseDefinition(buf, &lineTokens, "(")
+	} else {
+		function.Return = &Definition{lineTokens[0]: nil}
 	}
+
+	// parse body
+	lineTokens = lineTokens[1:]
+	function.Body = &FuncBody{Raw: parseBody(buf, lineTokens)}
+
+	return
 }
 
-func Exam(file string) error {
+func parseVar(buf *bufio.Scanner, lineTokens []string) *Definition {
+	definition := make(Definition)
+
+	return &definition
+}
+
+func preCheckErr(file string) error {
+	output, err := exec.Command("errcheck", "-blank=false", "-asserts=true", "-ignore=Walk", file).Output()
+
+	if err != nil {
+		return err
+	} else if len(output) != 0 {
+		fmt.Println("Error check failed.")
+		return errors.New(string(output[:]))
+	}
+
+	fmt.Println("Error check passed.")
+	return nil
+}
+
+func preCheckFmt(file string) error {
 	output, err := exec.Command("goimports", "-d", file).Output()
 
 	if err != nil {
 		return err
-	} else {
-		if len(output) != 0 {
-			fmt.Println("Format check failed.")
-			return errors.New(string(output[:]))
-		}
-
-		fmt.Println("Format check passed.")
+	} else if len(output) != 0 {
+		fmt.Println("Format check failed.")
+		return errors.New(string(output[:]))
 	}
 
-	output, err = exec.Command("errcheck", "-blank=false", "-asserts=true", "-ignore=Walk", file).Output()
+	fmt.Println("Format check passed.")
+	return nil
+}
+
+func PreCheck(file string) (err error) {
+	if !*noFormatCheck {
+		err = preCheckFmt(file)
+	} else {
+		fmt.Println("Skip format check")
+	}
 
 	if err != nil {
 		return err
-	} else {
-		if len(output) != 0 {
-			fmt.Println("Error check failed.")
-			return errors.New(string(output[:]))
-		}
+	}
 
-		fmt.Println("Error check passed.")
+	if !*noErrorCheck {
+		return preCheckErr(file)
+	} else {
+		fmt.Println("Skip error check")
 	}
 
 	return nil
@@ -269,15 +336,13 @@ func Parse(buf *bufio.Scanner) (*GoFile, error) {
 				goFile.Import = append(goFile.Import, parseImport(buf, tokens[1:])...)
 			// case "const":
 			// 	append(goFile.Const, parseOneOrMoreLine(buf, tokens))
-			// case "var":
-			// 	append(goFile.Var, parseOneOrMoreLine(buf, tokens))
+			case "var":
+				goFile.Var.Append(parseVar(buf, tokens[1:]))
 			case "func":
-				goFile.Func = append(goFile.Func, parseFunc(buf, tokens[1:])...)
+				goFile.Functions = append(goFile.Functions, parseFunc(buf, tokens[1:]))
 				// case "type":
 				// 	append(goFile.Type, parseOneOrMoreLine(buf, tokens))
 				// 	}
-
-				// case StateInFunc:
 			}
 		}
 	}
@@ -286,8 +351,10 @@ func Parse(buf *bufio.Scanner) (*GoFile, error) {
 }
 
 func main() {
+	parseFlag()
+
 	// fmt, lint and vet the file before parsing
-	if err := Exam(Filename); err != nil {
+	if err := PreCheck(Filename); err != nil {
 		log.Fatal(err)
 	}
 
