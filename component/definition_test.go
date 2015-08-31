@@ -67,13 +67,61 @@ func TestDefinitionItemParse(t *testing.T) {
 			expectedResult: Definition{"type": []string{"name"}},
 			remaining:      []string{")"},
 		},
+		{
+			name:           "Definition Item Parse Test 8 -- Pointer Type",
+			data:           []string{"name", "*", "type", ")"},
+			expectedResult: Definition{"*type": []string{"name"}},
+			remaining:      []string{")"},
+		},
+		{
+			name:           "Definition Item Parse Test 9 -- Slice Type",
+			data:           []string{"name", "[", "]", "type", ")"},
+			expectedResult: Definition{"[]type": []string{"name"}},
+			remaining:      []string{")"},
+		},
+		{
+			name:           "Definition Item Parse Test 10 -- Multi-Dimensional Slice Type",
+			data:           []string{"name", "[", "]", "[", "]", "type", ")"},
+			expectedResult: Definition{"[][]type": []string{"name"}},
+			remaining:      []string{")"},
+		},
+		{
+			name:           "Definition Item Parse Test 10 -- Mapping To Slice Type",
+			data:           []string{"name", "map", "[", "type1", "]", "[", "]", "type2", ")"},
+			expectedResult: Definition{"map[type1][]type2": []string{"name"}},
+			remaining:      []string{")"},
+		},
+		{
+			name:           "Definition Item Parse Test 11 -- Mapping To Multi-Dimensional Slice Pointer Type",
+			data:           []string{"name", "map", "[", "type1", "]", "*", "[", "]", "[", "]", "type2", ")"},
+			expectedResult: Definition{"map[type1]*[][]type2": []string{"name"}},
+			remaining:      []string{")"},
+		},
+		{
+			name:           "Definition Item Parse Test 12 -- Name With Underscore",
+			data:           []string{"na_me_", "type", ")"},
+			expectedResult: Definition{"type": []string{"na_me_"}},
+			remaining:      []string{")"},
+		},
+		{
+			name:           "Definition Item Parse Test 13 -- Name Starts Underscore",
+			data:           []string{"_name", "type", ")"},
+			expectedResult: Definition{"type": []string{"_name"}},
+			remaining:      []string{")"},
+		},
+		{
+			name:           "Definition Item Parse Test 14 -- Ultimate",
+			data:           []string{"_na_me_", ",", "ab123Vds_", "map", "[", "type1", "]", "*", "[", "]", "[", "]", "type2", ")"},
+			expectedResult: Definition{"map[type1]*[][]type2": []string{"_na_me_", "ab123Vds_"}},
+			remaining:      []string{")"},
+		},
 	}
 
 	for _, test := range testData {
 		definition := parseDefinitionItem(&test.data)
 
 		assert.Equal(t, test.expectedResult, *definition, test.name)
-		assert.Equal(t, test.data, test.remaining, test.name)
+		assert.Equal(t, test.remaining, test.data, test.name)
 	}
 }
 

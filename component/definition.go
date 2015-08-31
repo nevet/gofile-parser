@@ -2,6 +2,7 @@ package component
 
 import (
 	"bufio"
+	"fmt"
 
 	"github.com/nevet/parser/utils"
 )
@@ -38,14 +39,20 @@ func parseDefinitionItem(lineTokens *[]string) *Definition {
 		for _, v := range temp {
 			definition[v] = nil
 		}
-
-		*lineTokens = (*lineTokens)[curRune:]
 	} else
-	// if current token is a string, then all names should be parameter name.
+	// construct type name until we hit ")", all names should be parameter name.
 	{
-		definition[(*lineTokens)[curRune]] = temp
-		*lineTokens = (*lineTokens)[curRune+1:]
+		typeName := ""
+
+		for (*lineTokens)[curRune] != ")" && (*lineTokens)[curRune] != "," {
+			typeName += (*lineTokens)[curRune]
+			curRune++
+		}
+
+		definition[typeName] = temp
 	}
+
+	*lineTokens = (*lineTokens)[curRune:]
 
 	return &definition
 }
@@ -57,7 +64,14 @@ func (def *Definition) Append(another *Definition) {
 }
 
 func (def *Definition) Dump() {
-	// print definition
+	for key, names := range *def {
+		fmt.Printf("%v: ", key)
+		for _, name := range names {
+			fmt.Printf("%v ", name)
+		}
+
+		fmt.Println("")
+	}
 }
 
 func (definition *Definition) Parse(buf *bufio.Scanner, lineTokens *[]string) {
