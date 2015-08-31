@@ -51,6 +51,10 @@ func (tokReader *TokenReader) CurrentPos() int {
 }
 
 func (tokReader *TokenReader) CurrentToken() string {
+	if tokReader.lineTokens == nil {
+		return ""
+	}
+
 	return tokReader.lineTokens[tokReader.cursor]
 }
 
